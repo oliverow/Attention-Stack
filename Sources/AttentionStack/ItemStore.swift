@@ -47,8 +47,9 @@ final class ItemStore: ObservableObject {
         save()
     }
 
-    func move(from: IndexSet, to: Int) {
-        items.move(fromOffsets: from, toOffset: to)
+    func move(_ id: UUID, to index: Int) {
+        guard let from = items.firstIndex(where: { $0.id == id }), index != from else { return }
+        items.insert(items.remove(at: from), at: index)
         save()
     }
 
