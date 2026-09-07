@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let rowHeight: CGFloat = 28
+
 struct PanelView: View {
     @ObservedObject var store: ItemStore
     @State private var draft: String = ""
@@ -21,25 +23,30 @@ struct PanelView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 12)
             } else {
-                // Refresh the relative times while the panel is open.
-                // A plain VStack: a ScrollView gets zero height in a
-                // MenuBarExtra window.
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    VStack(spacing: 0) {
-                        ForEach(store.items) { item in
-                            RowView(item: item, now: context.date) {
-                                store.remove(item)
-                            }
+                // A List with only maxHeight collapses to zero height in
+                // a MenuBarExtra window, so rows have a fixed height and
+                // the List gets a definite frame (11 rows, then scrolls).
+                List {
+                    ForEach(store.items) { item in
+                        RowView(item: item) {
+                            store.remove(item)
+                        } onCommit: { text in
+                            store.update(item.id, text: text)
                         }
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
                     }
+                    .onMove { from, to in store.move(from: from, to: to) }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .environment(\.defaultMinListRowHeight, rowHeight)
+                .frame(height: min(CGFloat(store.items.count) * rowHeight, rowHeight * 11))
             }
 
             Divider()
 
             HStack {
-                Button("Pop") { store.pop() }
-                    .disabled(store.items.isEmpty)
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
             }
@@ -68,23 +75,70 @@ struct PanelView: View {
 
 private struct RowView: View {
     let item: StackItem
-    let now: Date
     let onRemove: () -> Void
+    let onCommit: (String) -> Void
+
+    @State private var draft: String
+    @State private var editing = false
+    @FocusState private var focused: Bool
+
+    init(item: StackItem, onRemove: @escaping () -> Void, onCommit: @escaping (String) -> Void) {
+        self.item = item
+        self.onRemove = onRemove
+        self.onCommit = onCommit
+        _draft = State(initialValue: item.text)
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(item.text)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(relativeLabel(from: item.createdAt, to: now))
-                .font(.caption)
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal")
                 .foregroundStyle(.secondary)
+            if editing {
+                TextField("", text: $draft)
+                    .textFieldStyle(.plain)
+                    .focused($focused)
+                    .onSubmit(commit)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(item.text)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(item.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        draft = item.text
+                        editing = true
+                        focused = true
+                    }
+            }
+            // Refresh the relative times while the panel is open.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                Text(relativeLabel(from: item.createdAt, to: context.date))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Button(action: onRemove) {
                 Image(systemName: "xmark")
                     .font(.caption)
             }
             .buttonStyle(.borderless)
         }
-        .padding(.vertical, 6)
+        .frame(height: rowHeight)
+        // Commit when the field loses focus, not only on Return.
+        .onChange(of: focused) { _, isFocused in
+            if !isFocused { commit() }
+        }
+    }
+
+    private func commit() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            draft = item.text
+        } else {
+            onCommit(trimmed)
+        }
+        editing = false
     }
 }
 

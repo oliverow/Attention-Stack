@@ -38,9 +38,17 @@ final class ItemStore: ObservableObject {
         save()
     }
 
-    func pop() {
-        guard !items.isEmpty else { return }
-        items.removeFirst()
+    func update(_ id: UUID, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let index = items.firstIndex(where: { $0.id == id }),
+              items[index].text != trimmed else { return }
+        items[index].text = trimmed
+        save()
+    }
+
+    func move(from: IndexSet, to: Int) {
+        items.move(fromOffsets: from, toOffset: to)
         save()
     }
 
