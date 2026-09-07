@@ -1,6 +1,8 @@
 import SwiftUI
 
 private let rowHeight: CGFloat = 28
+// Fixed anchor for the timestamp timer: `.now` would restart the schedule
+// on every body pass, and body runs every frame during a drag.
 private let launchDate = Date()
 
 struct PanelView: View {
@@ -45,6 +47,8 @@ struct PanelView: View {
                                 dragTranslation = translation
                             },
                             onDragEnd: {
+                                // A cancelled drag can end late, after another row started.
+                                guard dragID == item.id else { return }
                                 if let target = dragTarget() { store.move(item.id, to: target) }
                                 dragID = nil
                                 dragTranslation = 0
@@ -70,6 +74,9 @@ struct PanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { note in
             guard let window = note.object as? NSWindow,
                   window.occlusionState.contains(.visible) else { return }
+            // A drag interrupted by the panel closing never gets onEnded.
+            dragID = nil
+            dragTranslation = 0
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 fieldFocused = true
             }
@@ -94,7 +101,11 @@ struct PanelView: View {
     private func rowOffset(index: Int, id: UUID) -> CGFloat {
         guard let dragID, let to = dragTarget(),
               let from = store.items.firstIndex(where: { $0.id == dragID }) else { return 0 }
-        if id == dragID { return dragTranslation }
+        if id == dragID {
+            // Keep the dragged row inside the list.
+            return min(max(dragTranslation, CGFloat(-from) * rowHeight),
+                       CGFloat(store.items.count - 1 - from) * rowHeight)
+        }
         if from < to, index > from, index <= to { return -rowHeight }
         if from > to, index >= to, index < from { return rowHeight }
         return 0
