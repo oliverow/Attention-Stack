@@ -7,6 +7,7 @@ private let launchDate = Date()
 
 struct PanelView: View {
     @ObservedObject var store: ItemStore
+    @ObservedObject var frontmost: FrontmostAppTracker
     @State private var draft: String = ""
     @FocusState private var fieldFocused: Bool
     // Row being dragged and how far the cursor has moved. The list is not
@@ -37,11 +38,20 @@ struct PanelView: View {
                     ForEach(Array(store.items.enumerated()), id: \.element.id) { index, item in
                         RowView(
                             item: item,
+                            frontmostName: frontmost.app?.name,
                             offset: rowOffset(index: index, id: item.id),
                             dragging: item.id == dragID,
                             shifting: dragID != nil,
                             onRemove: { store.remove(item) },
                             onCommit: { text in store.update(item.id, text: text) },
+                            onToggleLink: {
+                                if item.app != nil {
+                                    store.setApp(item.id, app: nil)
+                                } else if let app = frontmost.app {
+                                    store.setApp(item.id, app: app)
+                                }
+                            },
+                            onJump: { if let app = item.app { bringToFront(app) } },
                             onDrag: { translation in
                                 dragID = item.id
                                 dragTranslation = translation
@@ -84,7 +94,7 @@ struct PanelView: View {
     }
 
     private func submit() {
-        store.add(draft)
+        store.add(draft, app: frontmost.app)
         draft = ""
         fieldFocused = true
     }
@@ -114,27 +124,38 @@ struct PanelView: View {
 
 private struct RowView: View {
     let item: StackItem
+    /// Name of the app the link button would attach, nil if there is none.
+    let frontmostName: String?
     let offset: CGFloat
     let dragging: Bool
     let shifting: Bool
     let onRemove: () -> Void
     let onCommit: (String) -> Void
+    let onToggleLink: () -> Void
+    let onJump: () -> Void
     let onDrag: (CGFloat) -> Void
     let onDragEnd: () -> Void
 
     @State private var draft: String
     @State private var editing = false
+    // A reorder drag can end inside the tap gesture's slop, which would
+    // jump to the app on top of reordering. Swallow that one tap.
+    @State private var justDragged = false
     @FocusState private var focused: Bool
 
-    init(item: StackItem, offset: CGFloat, dragging: Bool, shifting: Bool,
+    init(item: StackItem, frontmostName: String?, offset: CGFloat, dragging: Bool, shifting: Bool,
          onRemove: @escaping () -> Void, onCommit: @escaping (String) -> Void,
+         onToggleLink: @escaping () -> Void, onJump: @escaping () -> Void,
          onDrag: @escaping (CGFloat) -> Void, onDragEnd: @escaping () -> Void) {
         self.item = item
+        self.frontmostName = frontmostName
         self.offset = offset
         self.dragging = dragging
         self.shifting = shifting
         self.onRemove = onRemove
         self.onCommit = onCommit
+        self.onToggleLink = onToggleLink
+        self.onJump = onJump
         self.onDrag = onDrag
         self.onDragEnd = onDragEnd
         _draft = State(initialValue: item.text)
@@ -154,7 +175,7 @@ private struct RowView: View {
                 Text(item.text)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help(item.text)
+                    .help(item.app.map { "\(item.text) — click to open \($0.name)" } ?? item.text)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
@@ -162,7 +183,12 @@ private struct RowView: View {
                         editing = true
                         focused = true
                     }
+                    .onTapGesture {
+                        guard !justDragged else { return }
+                        if item.app != nil { onJump() }
+                    }
             }
+            linkButton
             // Refresh the relative times while the panel is open.
             TimelineView(.periodic(from: launchDate, by: 30)) { context in
                 Text(relativeLabel(from: item.createdAt, to: context.date))
@@ -185,14 +211,43 @@ private struct RowView: View {
         // Disabled while editing so text selection in the field works.
         .gesture(
             DragGesture(minimumDistance: 4)
-                .onChanged { value in onDrag(value.translation.height) }
-                .onEnded { _ in onDragEnd() },
+                .onChanged { value in
+                    justDragged = true
+                    onDrag(value.translation.height)
+                }
+                .onEnded { _ in
+                    onDragEnd()
+                    // Outlive the tap that may follow the release, but clear
+                    // in time for the next real click.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        justDragged = false
+                    }
+                },
             including: editing ? .subviews : .all
         )
         // Commit when the field loses focus, not only on Return.
         .onChange(of: focused) { _, isFocused in
             if !isFocused { commit() }
         }
+    }
+
+    /// Shows the linked app's icon; a plain link glyph when nothing is linked.
+    private var linkButton: some View {
+        Button(action: onToggleLink) {
+            if let icon = item.app.flatMap(appIcon) {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 14, height: 14)
+            } else {
+                // Still marked linked when the app is gone from disk.
+                Image(systemName: item.app == nil ? "link" : "link.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(item.app == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+            }
+        }
+        .buttonStyle(.borderless)
+        .disabled(item.app == nil && frontmostName == nil)
+        .help(item.app.map { "Unlink \($0.name)" } ?? frontmostName.map { "Link \($0)" } ?? "No app to link")
     }
 
     private func commit() {

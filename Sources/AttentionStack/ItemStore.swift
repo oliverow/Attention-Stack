@@ -4,11 +4,24 @@ struct StackItem: Identifiable, Codable, Equatable {
     let id: UUID
     var text: String
     let createdAt: Date
+    /// At most one app, brought forward when the item is clicked.
+    var app: LinkedApp?
 
     init(text: String) {
         self.id = UUID()
         self.text = text
         self.createdAt = Date()
+    }
+}
+
+/// An item that fails to decode drops on its own instead of taking the rest of
+/// the saved stack with it, so a future field change costs at most the items
+/// that changed shape.
+private struct LenientItem: Decodable {
+    let item: StackItem?
+
+    init(from decoder: Decoder) throws {
+        item = try? StackItem(from: decoder)
     }
 }
 
@@ -26,10 +39,12 @@ final class ItemStore: ObservableObject {
         load()
     }
 
-    func add(_ rawText: String) {
+    func add(_ rawText: String, app: LinkedApp?) {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        items.insert(StackItem(text: text), at: 0)
+        var item = StackItem(text: text)
+        item.app = app
+        items.insert(item, at: 0)
         save()
     }
 
@@ -47,6 +62,12 @@ final class ItemStore: ObservableObject {
         save()
     }
 
+    func setApp(_ id: UUID, app: LinkedApp?) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].app = app
+        save()
+    }
+
     func move(_ id: UUID, to index: Int) {
         guard let from = items.firstIndex(where: { $0.id == id }), index != from else { return }
         items.insert(items.remove(at: from), at: index)
@@ -54,11 +75,17 @@ final class ItemStore: ObservableObject {
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL),
-              let decoded = try? JSONDecoder().decode([StackItem].self, from: data) else {
-            return
+        guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else { return }
+        let decoded = try? JSONDecoder().decode([LenientItem].self, from: data)
+        items = decoded?.compactMap { $0.item } ?? []
+        // Anything dropped is data no save from this run will carry forward,
+        // and this file is the only copy: move it aside before the first save
+        // overwrites it.
+        if items.count != decoded?.count {
+            let backup = fileURL.appendingPathExtension("unreadable")
+            try? FileManager.default.removeItem(at: backup)
+            try? FileManager.default.moveItem(at: fileURL, to: backup)
         }
-        items = decoded
     }
 
     private func save() {
