@@ -17,10 +17,15 @@ struct PanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("What to come back to…", text: $draft)
-                .textFieldStyle(.roundedBorder)
-                .focused($fieldFocused)
-                .onSubmit(submit)
+            HStack {
+                TextField("What to come back to…", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($fieldFocused)
+                    .onSubmit(submit)
+                Button("Capture", action: capture)
+                    .disabled(frontmost.app == nil)
+                    .help(frontmost.app.map { "Add an item for \($0.name)" } ?? "No app to capture")
+            }
 
             Divider()
 
@@ -97,6 +102,14 @@ struct PanelView: View {
         store.add(draft, app: frontmost.app.map(attachingCurrentSession))
         draft = ""
         fieldFocused = true
+    }
+
+    /// Adds an item named after the front app. For Claude, the item takes
+    /// the title of the Claude Code session on screen instead, which is
+    /// already a short summary of what that session is about.
+    private func capture() {
+        guard let app = frontmost.app.map(attachingCurrentSession) else { return }
+        store.add(app.session?.title ?? app.name, app: app)
     }
 
     /// Index the dragged row would land on if released now.
