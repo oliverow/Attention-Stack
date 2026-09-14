@@ -48,7 +48,7 @@ struct PanelView: View {
                                 if item.app != nil {
                                     store.setApp(item.id, app: nil)
                                 } else if let app = frontmost.app {
-                                    store.setApp(item.id, app: app)
+                                    store.setApp(item.id, app: attachingCurrentSession(app))
                                 }
                             },
                             onJump: { if let app = item.app { bringToFront(app) } },
@@ -94,7 +94,7 @@ struct PanelView: View {
     }
 
     private func submit() {
-        store.add(draft, app: frontmost.app)
+        store.add(draft, app: frontmost.app.map(attachingCurrentSession))
         draft = ""
         fieldFocused = true
     }
@@ -175,7 +175,7 @@ private struct RowView: View {
                 Text(item.text)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help(item.app.map { "\(item.text) — click to open \($0.name)" } ?? item.text)
+                    .help(item.app.map { "\(item.text) — click to open \($0.displayName)" } ?? item.text)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
@@ -247,7 +247,7 @@ private struct RowView: View {
         }
         .buttonStyle(.borderless)
         .disabled(item.app == nil && frontmostName == nil)
-        .help(item.app.map { "Unlink \($0.name)" } ?? frontmostName.map { "Link \($0)" } ?? "No app to link")
+        .help(item.app.map { "Unlink \($0.displayName)" } ?? frontmostName.map { "Link \($0)" } ?? "No app to link")
     }
 
     private func commit() {
