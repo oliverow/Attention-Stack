@@ -29,9 +29,9 @@ private struct Cache: Codable {
     let ideas: [Idea]
 }
 
-/// A random idea from r/SomebodyMakeThis. Ideas already on the stack are
-/// passed over, so a second click gives a second thing to look at.
-func randomIdea(excluding used: Set<URL>) async -> Idea? {
+/// A random idea from r/SomebodyMakeThis. Ideas the caller has already been
+/// shown are passed over, so a second click gives a second thing to look at.
+func randomIdea(excluding seen: Set<URL>) async -> Idea? {
     let cached = readCache()
     var pool: [Idea] = []
     if let cached, Date().timeIntervalSince(cached.fetchedAt) < cacheLifetime {
@@ -49,7 +49,7 @@ func randomIdea(excluding used: Set<URL>) async -> Idea? {
             write(pool)
         }
     }
-    let unseen = pool.filter { !used.contains($0.url) }
+    let unseen = pool.filter { !seen.contains($0.url) }
     return (unseen.isEmpty ? pool : unseen).randomElement()
 }
 

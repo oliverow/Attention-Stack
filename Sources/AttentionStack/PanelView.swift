@@ -144,6 +144,7 @@ struct PanelView: View {
     /// only lands once the feed answers. An idea is just opened: it is
     /// something to look at now, not something to come back to.
     private func openRandomIdea() {
+        guard !loadingIdea else { return }
         loadingIdea = true
         Task { @MainActor in
             defer { loadingIdea = false }
