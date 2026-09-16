@@ -14,6 +14,12 @@ struct PanelView: View {
     // reordered until the drag ends; rows only shift visually meanwhile.
     @State private var dragID: UUID?
     @State private var dragTranslation: CGFloat = 0
+    // A second click while the feed is in flight would fire a second request,
+    // and Reddit throttles anonymous readers after very few of them.
+    @State private var loadingIdea = false
+    // Ideas are opened and forgotten rather than stacked, so the ones already
+    // shown are remembered here to keep the next click on something new.
+    @State private var seenIdeas: Set<URL> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -84,6 +90,9 @@ struct PanelView: View {
             HStack {
                 Button("🧻", action: openNextPaper)
                     .help("Open the next paper from the reading list")
+                Button("💡", action: openRandomIdea)
+                    .help("Open a random idea from r/SomebodyMakeThis")
+                    .disabled(loadingIdea)
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
             }
@@ -129,6 +138,22 @@ struct PanelView: View {
         }
         NSWorkspace.shared.open(paper.url)
         store.add(paper.title, app: nil, url: paper.url)
+    }
+
+    /// Unlike the paper list, the ideas come off the network, so the click
+    /// only lands once the feed answers. An idea is just opened: it is
+    /// something to look at now, not something to come back to.
+    private func openRandomIdea() {
+        loadingIdea = true
+        Task { @MainActor in
+            defer { loadingIdea = false }
+            guard let idea = await randomIdea(excluding: seenIdeas) else {
+                NSSound.beep()
+                return
+            }
+            seenIdeas.insert(idea.url)
+            NSWorkspace.shared.open(idea.url)
+        }
     }
 
     /// Index the dragged row would land on if released now.
