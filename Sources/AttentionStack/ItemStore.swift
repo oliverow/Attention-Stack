@@ -6,6 +6,8 @@ struct StackItem: Identifiable, Codable, Equatable {
     let createdAt: Date
     /// At most one app, brought forward when the item is clicked.
     var app: LinkedApp?
+    /// A page the item opens instead of an app, set for papers added by 🧻.
+    var url: URL?
 
     init(text: String) {
         self.id = UUID()
@@ -39,11 +41,12 @@ final class ItemStore: ObservableObject {
         load()
     }
 
-    func add(_ rawText: String, app: LinkedApp?) {
+    func add(_ rawText: String, app: LinkedApp?, url: URL? = nil) {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         var item = StackItem(text: text)
         item.app = app
+        item.url = url
         items.insert(item, at: 0)
         save()
     }

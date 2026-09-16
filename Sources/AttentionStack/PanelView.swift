@@ -56,7 +56,13 @@ struct PanelView: View {
                                     store.setApp(item.id, app: attachingCurrentSession(app))
                                 }
                             },
-                            onJump: { if let app = item.app { bringToFront(app) } },
+                            onJump: {
+                                if let url = item.url {
+                                    NSWorkspace.shared.open(url)
+                                } else if let app = item.app {
+                                    bringToFront(app)
+                                }
+                            },
                             onDrag: { translation in
                                 dragID = item.id
                                 dragTranslation = translation
@@ -76,6 +82,8 @@ struct PanelView: View {
             Divider()
 
             HStack {
+                Button("🧻", action: openNextPaper)
+                    .help("Open the next paper from the reading list")
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
             }
@@ -110,6 +118,17 @@ struct PanelView: View {
     private func capture() {
         guard let app = frontmost.app.map(attachingCurrentSession) else { return }
         store.add(app.session?.title ?? app.name, app: app)
+    }
+
+    /// Opens the paper the reading list has at the top of its queue and
+    /// stacks it, so it is one click away again once the tab is buried.
+    private func openNextPaper() {
+        guard let paper = nextPaper() else {
+            NSSound.beep()
+            return
+        }
+        NSWorkspace.shared.open(paper.url)
+        store.add(paper.title, app: nil, url: paper.url)
     }
 
     /// Index the dragged row would land on if released now.
@@ -188,7 +207,7 @@ private struct RowView: View {
                 Text(item.text)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help(item.app.map { "\(item.text) — click to open \($0.displayName)" } ?? item.text)
+                    .help(helpText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
@@ -198,7 +217,7 @@ private struct RowView: View {
                     }
                     .onTapGesture {
                         guard !justDragged else { return }
-                        if item.app != nil { onJump() }
+                        if item.url != nil || item.app != nil { onJump() }
                     }
             }
             linkButton
@@ -244,6 +263,12 @@ private struct RowView: View {
         }
     }
 
+    private var helpText: String {
+        if item.url != nil { return "\(item.text) — click to open the paper" }
+        if let app = item.app { return "\(item.text) — click to open \(app.displayName)" }
+        return item.text
+    }
+
     /// Shows the linked app's icon; a plain link glyph when nothing is linked.
     private var linkButton: some View {
         Button(action: onToggleLink) {
@@ -259,7 +284,8 @@ private struct RowView: View {
             }
         }
         .buttonStyle(.borderless)
-        .disabled(item.app == nil && frontmostName == nil)
+        // A paper row opens its page, so an app linked there would do nothing.
+        .disabled(item.url != nil || (item.app == nil && frontmostName == nil))
         .help(item.app.map { "Unlink \($0.displayName)" } ?? frontmostName.map { "Link \($0)" } ?? "No app to link")
     }
 
