@@ -47,17 +47,18 @@ private func currentClaudeSession() -> LinkedSession? {
     return best?.session
 }
 
-/// The Claude desktop session whose file mentions `cliSessionID`, the id
-/// Claude Code hooks report. The desktop app keeps its own session ids, and
-/// which field of its file holds the hook's id is not documented, so this
-/// looks for the id anywhere in the file. The title is empty until the
-/// desktop app has named the session.
-func desktopSession(mentioning cliSessionID: String) -> LinkedSession? {
+/// The Claude desktop session whose `cliSessionId` is `cliSessionID`, the
+/// id Claude Code hooks report; the desktop app keys its sessions by its own
+/// `sessionId`. The title is empty until the desktop app has named the
+/// session.
+func desktopSession(cliSessionID: String) -> LinkedSession? {
     let needle = Data(cliSessionID.utf8)
     for url in recentDesktopSessionFiles() {
+        // A cheap byte search first, so only the matching file is parsed.
         guard let data = try? Data(contentsOf: url),
               data.range(of: needle) != nil,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["cliSessionId"] as? String == cliSessionID,
               let id = json["sessionId"] as? String else { continue }
         return LinkedSession(id: id, title: json["title"] as? String ?? "")
     }
