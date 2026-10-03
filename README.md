@@ -21,6 +21,20 @@ Capture adds an item without typing: it is named after the app that was in front
 
 Each item can be linked to one app. A new item is linked automatically to whatever app was in front before you opened the panel; click the link icon on a row to unlink, and click it again to re-link the current front app. Clicking a linked item's text brings that app forward. When the app in front is Claude, the link also remembers the Claude Code session on screen and reopens it.
 
+## Claude Code sessions join on their own
+Click **Track Claude** once (it shows until the hooks are in place). It adds user-level hooks to `~/.claude/settings.json`, keeping everything else there and a copy of the original beside it as `settings.json.attention-stack-backup`. From then on every Claude Code session on this Mac, in the terminal or in the desktop app's Code tab, joins the stack at its first prompt without any typing. Cloud sessions on claude.ai do not run your local hooks, so they are not tracked.
+
+A session row is named after its folder and first prompt, or after the desktop app's title for that session once there is one, and its badge follows the session:
+
+- blue dotted circle: working
+- orange !: waiting on a permission or a question
+- green check: finished, not looked at yet
+- grey circle: finished and looked at
+
+The menu bar icon gains a ! while any session is orange or green. Clicking a row brings back the app the session runs in (reopening the session itself for the desktop app) and counts as looking at it, as does sending the session a new prompt. A session leaves the stack once it has closed and you have looked at it; ✕ removes it sooner, and it only comes back with a new prompt. When a closed terminal session is clicked, `cd <folder> && claude --resume <id>` is left on the clipboard.
+
+The hooks run `AttentionStackHook` from inside the app bundle, in the background, so a session never waits on it. It drops each event into `~/Library/Application Support/AttentionStack/events/`, keeping only the session id, event name, folder, notification type, the first 200 characters of a prompt, and the app the session runs in. The app reads and deletes them, including any that piled up while it was closed. Moving the app breaks the hook path; **Track Claude** reappears and fixes it.
+
 ## Install
 Drag `build/Attention Stack.app` into `/Applications`.
 

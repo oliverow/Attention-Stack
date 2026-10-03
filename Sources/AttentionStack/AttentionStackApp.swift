@@ -24,20 +24,28 @@ struct AttentionStackApp: App {
         } label: {
             // MenuBarExtra drops the text when its label has an image,
             // so render icon + count into one template image.
-            Image(nsImage: menuBarImage(count: store.items.count))
+            Image(nsImage: menuBarImage(
+                count: store.items.count,
+                wantsYou: store.items.contains { $0.session?.wantsYou == true }
+            ))
         }
         .menuBarExtraStyle(.window)
     }
 }
 
 @MainActor
-private func menuBarImage(count: Int) -> NSImage {
+private func menuBarImage(count: Int, wantsYou: Bool) -> NSImage {
     let content = HStack(spacing: 3) {
         Image(systemName: "tray.full")
             .font(.system(size: 14, weight: .regular))
         if count > 0 {
             Text("\(count)")
                 .font(.system(size: 13, weight: .medium))
+        }
+        // A Claude Code session is waiting on you or has a result to read.
+        if wantsYou {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 11, weight: .bold))
         }
     }
     .foregroundStyle(.black)
