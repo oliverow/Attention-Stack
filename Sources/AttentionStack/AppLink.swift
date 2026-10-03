@@ -19,7 +19,7 @@ struct LinkedApp: Codable, Equatable {
     }
 }
 
-private let claudeBundleID = "com.anthropic.claudefordesktop"
+let claudeBundleID = "com.anthropic.claudefordesktop"
 
 /// Returns `app` unchanged unless it is Claude, in which case it attaches the
 /// Claude Code session that was most recently focused (nil if none is found).
@@ -31,12 +31,46 @@ func attachingCurrentSession(_ app: LinkedApp) -> LinkedApp {
 }
 
 /// The Claude Code session with the largest `lastFocusedAt`.
+private func currentClaudeSession() -> LinkedSession? {
+    var best: (session: LinkedSession, focusedAt: Double)?
+    for url in recentDesktopSessionFiles() {
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = json["sessionId"] as? String,
+              let focusedAt = json["lastFocusedAt"] as? Double else { continue }
+        // A brand-new session has no title yet; it must still win over older ones.
+        let title = json["title"] as? String ?? "Untitled session"
+        if focusedAt > (best?.focusedAt ?? -.infinity) {
+            best = (LinkedSession(id: id, title: title), focusedAt)
+        }
+    }
+    return best?.session
+}
+
+/// The Claude desktop session whose file mentions `cliSessionID`, the id
+/// Claude Code hooks report. The desktop app keeps its own session ids, and
+/// which field of its file holds the hook's id is not documented, so this
+/// looks for the id anywhere in the file. The title is empty until the
+/// desktop app has named the session.
+func desktopSession(mentioning cliSessionID: String) -> LinkedSession? {
+    let needle = Data(cliSessionID.utf8)
+    for url in recentDesktopSessionFiles() {
+        guard let data = try? Data(contentsOf: url),
+              data.range(of: needle) != nil,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = json["sessionId"] as? String else { continue }
+        return LinkedSession(id: id, title: json["title"] as? String ?? "")
+    }
+    return nil
+}
+
+/// The most recently written Claude desktop session files.
 ///
 /// Each session file is ~540 KB and there are a couple hundred of them, so we
-/// sort by modification date and parse only the newest few: the focused
-/// session is one of the recently written files, and parsing all of them on
-/// every link would be needlessly slow.
-private func currentClaudeSession() -> LinkedSession? {
+/// sort by modification date and keep only the newest few: the session we
+/// want is one of the recently written files, and parsing all of them would
+/// be needlessly slow.
+private func recentDesktopSessionFiles() -> ArraySlice<URL> {
     let base = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("Claude/claude-code-sessions", isDirectory: true)
@@ -51,25 +85,11 @@ private func currentClaudeSession() -> LinkedSession? {
     let files = (enumerator?.allObjects as? [URL] ?? []).filter {
         $0.lastPathComponent.hasPrefix("local_") && $0.pathExtension == "json"
     }
-    let newest = files.sorted {
+    return files.sorted {
         let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
         let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
         return lhs > rhs
     }.prefix(8)
-
-    var best: (session: LinkedSession, focusedAt: Double)?
-    for url in newest {
-        guard let data = try? Data(contentsOf: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let id = json["sessionId"] as? String,
-              let focusedAt = json["lastFocusedAt"] as? Double else { continue }
-        // A brand-new session has no title yet; it must still win over older ones.
-        let title = json["title"] as? String ?? "Untitled session"
-        if focusedAt > (best?.focusedAt ?? -.infinity) {
-            best = (LinkedSession(id: id, title: title), focusedAt)
-        }
-    }
-    return best?.session
 }
 
 /// The last app that was frontmost other than this one. Opening the panel

@@ -10,6 +10,10 @@ let package = Package(
         .executableTarget(
             name: "AttentionStack",
             path: "Sources/AttentionStack"
+        ),
+        .executableTarget(
+            name: "AttentionStackHook",
+            path: "Sources/AttentionStackHook"
         )
     ]
 )

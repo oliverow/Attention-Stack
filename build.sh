@@ -15,9 +15,13 @@ mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 
 cp "$BIN_PATH/AttentionStack" "$APP/Contents/MacOS/AttentionStack"
+cp "$BIN_PATH/AttentionStackHook" "$APP/Contents/MacOS/AttentionStackHook"
 cp "Info.plist" "$APP/Contents/Info.plist"
 
 echo "Ad-hoc signing…"
+# The helper is signed on its own first; --deep does not reach plain
+# executables sitting next to the main one.
+codesign --force --sign - "$APP/Contents/MacOS/AttentionStackHook"
 codesign --force --deep --sign - "$APP"
 
 echo "Done: $APP"

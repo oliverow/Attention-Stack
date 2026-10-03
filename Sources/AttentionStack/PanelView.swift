@@ -20,6 +20,8 @@ struct PanelView: View {
     // Ideas are opened and forgotten rather than stacked, so the ones already
     // shown are remembered here to keep the next click on something new.
     @State private var seenIdeas: Set<URL> = []
+    // Rechecked each time the panel opens, since moving the app breaks them.
+    @State private var hooksInstalled = ClaudeHooks.isInstalled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -62,13 +64,7 @@ struct PanelView: View {
                                     store.setApp(item.id, app: attachingCurrentSession(app))
                                 }
                             },
-                            onJump: {
-                                if let url = item.url {
-                                    NSWorkspace.shared.open(url)
-                                } else if let app = item.app {
-                                    bringToFront(app)
-                                }
-                            },
+                            onJump: { jump(to: item) },
                             onDrag: { translation in
                                 dragID = item.id
                                 dragTranslation = translation
@@ -94,6 +90,10 @@ struct PanelView: View {
                     .help("Open a random idea from r/SomebodyMakeThis")
                     .disabled(loadingIdea)
                 Spacer()
+                if !hooksInstalled {
+                    Button("Track Claude", action: installHooks)
+                        .help("Add Claude Code sessions to the stack on their own")
+                }
                 Button("Quit") { NSApplication.shared.terminate(nil) }
             }
         }
@@ -109,6 +109,7 @@ struct PanelView: View {
             // A drag interrupted by the panel closing never gets onEnded.
             dragID = nil
             dragTranslation = 0
+            hooksInstalled = ClaudeHooks.isInstalled
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 fieldFocused = true
             }
@@ -119,6 +120,37 @@ struct PanelView: View {
         store.add(draft, app: frontmost.app.map(attachingCurrentSession))
         draft = ""
         fieldFocused = true
+    }
+
+    private func jump(to item: StackItem) {
+        if let url = item.url {
+            NSWorkspace.shared.open(url)
+        } else if let app = item.app {
+            bringToFront(app)
+        }
+        guard let session = item.session else { return }
+        // An ended session outside the desktop app has no window left to
+        // bring back, so leave the command that resumes it on the clipboard.
+        if session.ended && item.app?.session == nil {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(resumeCommand(session), forType: .string)
+        }
+        store.markSeen(item.id)
+    }
+
+    private func installHooks() {
+        let alert = NSAlert()
+        do {
+            try ClaudeHooks.install()
+            hooksInstalled = true
+            alert.messageText = "Claude Code sessions will now join the stack"
+            alert.informativeText = "Each session shows up at its first prompt. Sessions already open may need a restart before they report."
+        } catch {
+            alert.alertStyle = .warning
+            alert.messageText = "Could not set up the Claude Code hooks"
+            alert.informativeText = error.localizedDescription
+        }
+        alert.runModal()
     }
 
     /// Adds an item named after the front app. For Claude, the item takes
@@ -223,6 +255,9 @@ private struct RowView: View {
         HStack(spacing: 8) {
             Image(systemName: "line.3.horizontal")
                 .foregroundStyle(.secondary)
+            if let session = item.session {
+                SessionBadge(session: session)
+            }
             if editing {
                 TextField("", text: $draft)
                     .textFieldStyle(.plain)
@@ -243,13 +278,14 @@ private struct RowView: View {
                     }
                     .onTapGesture {
                         guard !justDragged else { return }
-                        if item.url != nil || item.app != nil { onJump() }
+                        if item.url != nil || item.app != nil || item.session != nil { onJump() }
                     }
             }
             linkButton
             // Refresh the relative times while the panel is open.
             TimelineView(.periodic(from: launchDate, by: 30)) { context in
-                Text(relativeLabel(from: item.createdAt, to: context.date))
+                // A session shows when it last changed, not when it began.
+                Text(relativeLabel(from: item.session?.updatedAt ?? item.createdAt, to: context.date))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -290,6 +326,10 @@ private struct RowView: View {
     }
 
     private var helpText: String {
+        if let session = item.session {
+            let target = item.app.map { "click to open \($0.displayName)" } ?? "click to mark as seen"
+            return "\(item.text) — \(session.cwd) — \(target)"
+        }
         if item.url != nil { return "\(item.text) — click to open the paper" }
         if let app = item.app { return "\(item.text) — click to open \(app.displayName)" }
         return item.text
@@ -335,4 +375,46 @@ private func relativeLabel(from date: Date, to now: Date) -> String {
     if hours < 24 { return "\(hours)h ago" }
     let days = hours / 24
     return "\(days)d ago"
+}
+
+/// Where a tracked session stands, at a glance.
+private struct SessionBadge: View {
+    let session: TrackedSession
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.caption)
+            .foregroundStyle(color)
+            .help(label)
+    }
+
+    private var symbol: String {
+        switch session.state {
+        case .working: "circle.dotted"
+        case .needsYou: "exclamationmark.circle.fill"
+        case .finished: session.seen ? "circle" : "checkmark.circle.fill"
+        }
+    }
+
+    private var color: Color {
+        switch session.state {
+        case .working: .blue
+        case .needsYou: .orange
+        case .finished: session.seen ? .secondary : .green
+        }
+    }
+
+    private var label: String {
+        let state = switch session.state {
+        case .working: "Working"
+        case .needsYou: "Waiting on you"
+        case .finished: session.seen ? "Idle" : "Finished, not looked at yet"
+        }
+        return session.ended ? "\(state) · session closed" : state
+    }
+}
+
+private func resumeCommand(_ session: TrackedSession) -> String {
+    let quoted = "'" + session.cwd.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    return "cd \(quoted) && claude --resume \(session.id)"
 }

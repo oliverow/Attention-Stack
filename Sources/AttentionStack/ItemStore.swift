@@ -8,6 +8,8 @@ struct StackItem: Identifiable, Codable, Equatable {
     var app: LinkedApp?
     /// A page the item opens instead of an app, set for papers added by 🧻.
     var url: URL?
+    /// Set for items Claude Code hooks created; see `SessionTracker`.
+    var session: TrackedSession?
 
     init(text: String) {
         self.id = UUID()
@@ -32,6 +34,7 @@ final class ItemStore: ObservableObject {
     @Published private(set) var items: [StackItem] = []
 
     private let fileURL: URL
+    private var sessionTracker: SessionTracker?
 
     init() {
         let base = FileManager.default
@@ -39,6 +42,7 @@ final class ItemStore: ObservableObject {
             .appendingPathComponent("AttentionStack", isDirectory: true)
         self.fileURL = base.appendingPathComponent("items.json")
         load()
+        sessionTracker = SessionTracker(store: self)
     }
 
     func add(_ rawText: String, app: LinkedApp?, url: URL? = nil) {
@@ -62,6 +66,8 @@ final class ItemStore: ObservableObject {
               let index = items.firstIndex(where: { $0.id == id }),
               items[index].text != trimmed else { return }
         items[index].text = trimmed
+        // A name you typed is not replaced by the session's title later.
+        items[index].session?.autoTitle = false
         save()
     }
 
@@ -69,6 +75,28 @@ final class ItemStore: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].app = app
         save()
+    }
+
+    /// Clicking a session's row counts as looking at it. Once a session has
+    /// ended, looking at it is the last thing left to do, so it leaves.
+    func markSeen(_ id: UUID) {
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              var session = items[index].session else { return }
+        if session.ended {
+            items.remove(at: index)
+        } else {
+            guard !session.seen else { return }
+            session.seen = true
+            items[index].session = session
+        }
+        save()
+    }
+
+    /// Applies a batch of changes made outside the panel with one save.
+    func modify(_ body: (inout [StackItem]) -> Void) {
+        let before = items
+        body(&items)
+        if items != before { save() }
     }
 
     func move(_ id: UUID, to index: Int) {
