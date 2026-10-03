@@ -169,7 +169,7 @@ final class SessionTracker {
     /// what the desktop app passes on as the host is not documented.
     private func refreshDesktopTitle(of item: inout StackItem) {
         guard let id = item.session?.id,
-              let desktop = desktopSession(mentioning: id) else { return }
+              let desktop = desktopSession(cliSessionID: id) else { return }
         if item.app?.bundleID != claudeBundleID {
             item.app = LinkedApp(bundleID: claudeBundleID, name: "Claude")
         }
